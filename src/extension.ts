@@ -1,20 +1,9 @@
 import * as vscode from 'vscode';
-import { Memento } from 'vscode';
-
-class LocalStorage {
-  constructor(private storage: Memento) { }
-
-  public getValue<T>(key: string, def: T): T {
-    return this.storage.get<T>(key, def);
-  }
-
-  public setValue<T>(key: string, value: T) {
-    this.storage.update(key, value);
-  }
-}
+import { LocalStorage, KeysList } from './storage';
 
 export function activate(context: vscode.ExtensionContext) {
   const storage: LocalStorage = new LocalStorage(context.globalState);
+  const keysList: KeysList = new KeysList(storage);
 
   const label = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
   label.show();
@@ -22,7 +11,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   let totalKeypressCount: number = storage.getValue<number>('totalKeypressCount', 0);
   let consecutiveKeypressCount: number = 0;
-  let timeoutHandle: NodeJS.Timeout;
+  let timeoutComboHandle: NodeJS.Timeout;
+  let timeoutSaveHandle: NodeJS.Timeout;
 
   const updateLabel = () => {
     // Format totalKeypressCount as 1,234,567
@@ -31,16 +21,35 @@ export function activate(context: vscode.ExtensionContext) {
   };
   updateLabel();
 
-  const onKeyPressed = () => {
+  keysList.load();
+
+  const onKeyPressed = (event: vscode.TextDocumentChangeEvent) => {
+    const keyEventText = event.contentChanges[0].text;
+    if (keyEventText.length === 1) {
+      const key = keyEventText.toLowerCase();
+      if (keysList.buffer[key] !== undefined) {
+        keysList.buffer[key]++;
+      } else {
+        keysList.buffer[key] = 1;
+      }
+    }
+
     consecutiveKeypressCount++;
     updateLabel();
 
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
+    if (timeoutComboHandle) {
+      clearTimeout(timeoutComboHandle);
     }
-    timeoutHandle = setTimeout(() => {
+    timeoutComboHandle = setTimeout(() => {
       onConsecutiveEnded();
     }, 3000);
+
+    if (timeoutSaveHandle) {
+      clearTimeout(timeoutSaveHandle);
+    }
+    timeoutSaveHandle = setTimeout(() => {
+      keysList.save();
+    }, 5000);
   };
 
   const onConsecutiveEnded = () => {
@@ -52,8 +61,8 @@ export function activate(context: vscode.ExtensionContext) {
   };
 
   vscode.workspace.onDidChangeTextDocument(event => {
-    onKeyPressed();
+    onKeyPressed(event);
   });
-}
+};
 
 export function deactivate() { }
