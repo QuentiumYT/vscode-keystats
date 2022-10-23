@@ -2,7 +2,7 @@
   "name": "vscode-keystats",
   "displayName": "KeyStats",
   "description": "Key press count, combo and metrics about the keys you press the most.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "QuentiumYT",
   "author": {
     "name": "Quentin Lienhardt"
