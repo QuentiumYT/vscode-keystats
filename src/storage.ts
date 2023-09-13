@@ -1,8 +1,5 @@
 import { Memento } from 'vscode';
-
-type KeyCount = {
-  [key: string]: number;
-};
+import { KeyData } from './types';
 
 class LocalStorage {
   constructor(private storage: Memento) { }
@@ -14,21 +11,25 @@ class LocalStorage {
   public setValue<T>(key: string, value: T) {
     this.storage.update(key, value);
   }
+
+  public deleteValue(key: string) {
+    this.storage.update(key, undefined);
+  }
 }
 
 class KeysList {
-  private static readonly key = 'keysList';
-  public buffer: KeyCount = {};
+  private static readonly key = 'keyStatsData';
+  public data: KeyData = { total: 0, dates: {} };
 
   constructor(private storage: LocalStorage) { }
 
   public load() {
-    this.buffer = this.storage.getValue<KeyCount>(KeysList.key, this.buffer);
-    return this.buffer;
+    this.data = this.storage.getValue<KeyData>(KeysList.key, this.data);
+    return this.data;
   }
 
   public save() {
-    this.storage.setValue(KeysList.key, this.buffer);
+    this.storage.setValue(KeysList.key, this.data);
   }
 }
 

@@ -1,68 +1,151 @@
 import * as vscode from 'vscode';
 import { LocalStorage, KeysList } from './storage';
+import { getDate } from './utils';
+
+let date = getDate();
+let project = vscode.workspace.name || 'Unknown Project';
+let file = 'Unnamed File';
+
+let statusBarLabel: vscode.StatusBarItem;
+
+let timeoutHandle: NodeJS.Timeout;
+
+let totalKeypressCount: number = 0;
+let consecutiveKeypressCount: number = 0;
+
+let keysList: KeysList;
 
 export function activate(context: vscode.ExtensionContext) {
   const storage: LocalStorage = new LocalStorage(context.globalState);
-  const keysList: KeysList = new KeysList(storage);
-
-  const label = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
-  label.show();
-  context.subscriptions.push(label);
-
-  let totalKeypressCount: number = storage.getValue<number>('totalKeypressCount', 0);
-  let consecutiveKeypressCount: number = 0;
-  let timeoutComboHandle: NodeJS.Timeout;
-  let timeoutSaveHandle: NodeJS.Timeout;
-
-  const updateLabel = () => {
-    // Format totalKeypressCount as 1,234,567
-    const formattedCount = totalKeypressCount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    label.text = '$(flame)' + formattedCount + (consecutiveKeypressCount > 0 ? ` | ${consecutiveKeypressCount} combo` : '');
-  };
-  updateLabel();
-
+  keysList = new KeysList(storage);
   keysList.load();
 
-  const onKeyPressed = (event: vscode.TextDocumentChangeEvent) => {
-    const keyEventText = event.contentChanges[0].text;
-    if (keyEventText.length === 1) {
-      const key = keyEventText.toLowerCase();
-      if (keysList.buffer[key] !== undefined) {
-        keysList.buffer[key]++;
-      } else {
-        keysList.buffer[key] = 1;
-      }
-    }
+  statusBarLabel = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
+  statusBarLabel.show();
+  context.subscriptions.push(statusBarLabel);
 
-    consecutiveKeypressCount++;
-    updateLabel();
+  totalKeypressCount = keysList.data.total;
 
-    if (timeoutComboHandle) {
-      clearTimeout(timeoutComboHandle);
-    }
-    timeoutComboHandle = setTimeout(() => {
-      onConsecutiveEnded();
-    }, 3000);
+  updateStats();
 
-    if (timeoutSaveHandle) {
-      clearTimeout(timeoutSaveHandle);
-    }
-    timeoutSaveHandle = setTimeout(() => {
-      keysList.save();
-    }, 5000);
-  };
+  setInterval(() => {
+    keysList.save();
+  }, 6000);
 
-  const onConsecutiveEnded = () => {
-    totalKeypressCount = storage.getValue<number>('totalKeypressCount', 0);
-    totalKeypressCount += consecutiveKeypressCount;
-    storage.setValue('totalKeypressCount', totalKeypressCount);
-    consecutiveKeypressCount = 0;
-    updateLabel();
-  };
+  // Register event listeners
+  vscode.workspace.onDidChangeTextDocument((event) => {
+    onKeyPressed(event, keysList);
+  });
 
-  vscode.workspace.onDidChangeTextDocument(event => {
-    onKeyPressed(event);
+  vscode.window.onDidChangeActiveTextEditor((event) => {
+    onProjectChange(event);
   });
 };
 
-export function deactivate() { }
+const onKeyPressed = (event: vscode.TextDocumentChangeEvent, keysList: KeysList) => {
+  if (!event.contentChanges) {
+    return;
+  }
+  const eventText = event.contentChanges[0].text;
+
+  let { data } = keysList;
+
+  if (!data) {
+    data = {
+      dates: {},
+      total: 0,
+    };
+  }
+
+  let { dates } = keysList.data;
+  if (!dates || !dates[date]) {
+    dates[date] = {
+      projects: {},
+      global: 0,
+    };
+  }
+
+  let { projects } = dates[date];
+  if (!projects || !projects[project]) {
+    projects[project] = {
+      keys: {},
+      special: 0,
+    };
+  }
+
+  let { keys } = projects[project];
+  if (!keys) {
+    keys = {};
+  }
+  if (!keys[eventText]) {
+    keys[eventText] = 0;
+  }
+  switch (eventText) {
+    case '':
+      data.total++;
+      dates[date].global++;
+      projects[project].special++;
+      break;
+
+    case ' ':
+      data.total++;
+      dates[date].global++;
+      keys['space']++;
+      break;
+
+    case '\n' || '\r' || '\r\n':
+      data.total++;
+      dates[date].global++;
+      keys['enter']++;
+      break;
+
+    case '\t' || '\n\t' || '\r\t' || '\r\n\t':
+      data.total++;
+      dates[date].global++;
+      keys['tab']++;
+      break;
+
+    default:
+      data.total++;
+      dates[date].global++;
+      keys[eventText]++;
+      break;
+  }
+
+  projects[project].keys = keys;
+  dates[date].projects = projects;
+  data.dates = dates;
+
+  keysList.data = data;
+
+  consecutiveKeypressCount++;
+  updateStats();
+
+  if (timeoutHandle) {
+    clearTimeout(timeoutHandle);
+  }
+  timeoutHandle = setTimeout(() => {
+    totalKeypressCount += consecutiveKeypressCount;
+    consecutiveKeypressCount = 0;
+    updateStats();
+  }, 3000);
+};
+
+const onProjectChange = (event: vscode.TextEditor | undefined) => {
+  project = vscode.workspace.name || 'Unknown Project';
+  if (event) {
+    file = event.document.fileName.split('/').pop() || 'Unnamed File';
+  }
+
+  consecutiveKeypressCount = 0;
+};
+
+const updateStats = () => {
+  // Format totalKeypressCount as 1,234,567
+  const formattedCount = totalKeypressCount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  statusBarLabel.text = '$(flame)' + formattedCount + (consecutiveKeypressCount > 0 ? ` | ${consecutiveKeypressCount} combo` : '');
+};
+
+export function deactivate() {
+  keysList.save();
+}
